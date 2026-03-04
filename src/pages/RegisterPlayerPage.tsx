@@ -1,9 +1,11 @@
 // src/pages/RegisterPlayerPage.tsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { createPlayer } from '../lib/firebase/firestore';
 import { uploadPlayerPhoto } from '../lib/firebase/storage';
+import { getCoachTeams } from '../lib/firebase/admin';
+import type { Team } from '../types/admin';
 import { Button } from '../components/common/Button';
 import { Input } from '../components/common/Input';
 import { Select } from '../components/common/Select';
@@ -15,6 +17,8 @@ export const RegisterPlayerPage: React.FC = () => {
   const [error, setError] = useState('');
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [teams, setTeams] = useState<Team[]>([]);  // ← ADD THIS
+  const [loadingTeams, setLoadingTeams] = useState(true);  // ← ADD THIS
 
   const [formData, setFormData] = useState({
     firstName: '',
@@ -24,7 +28,8 @@ export const RegisterPlayerPage: React.FC = () => {
     heightFeet: '',
     heightInches: '',
     weight: '',
-    position: ''
+    position: '',
+    teamId: ''  // ← ADD THIS
   });
 
   const classOptions = [
@@ -42,6 +47,30 @@ export const RegisterPlayerPage: React.FC = () => {
     { value: 'Center', label: 'Center' }
   ];
 
+  // ← ADD THIS: Load coach's teams
+  useEffect(() => {
+    loadTeams();
+  }, [user]);
+
+  const loadTeams = async () => {
+    if (!user) return;
+    
+    setLoadingTeams(true);
+    try {
+      const coachTeams = await getCoachTeams(user.uid);
+      setTeams(coachTeams);
+      
+      // Auto-select team if coach has only one
+      if (coachTeams.length === 1) {
+        setFormData(prev => ({ ...prev, teamId: coachTeams[0].teamId! }));
+      }
+    } catch (error) {
+      console.error('Error loading teams:', error);
+    } finally {
+      setLoadingTeams(false);
+    }
+  };
+
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setFormData(prev => ({
       ...prev,
@@ -52,13 +81,11 @@ export const RegisterPlayerPage: React.FC = () => {
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      // Validate file size (5MB max)
       if (file.size > 5 * 1024 * 1024) {
         setError('Photo must be under 5MB');
         return;
       }
 
-      // Validate file type
       if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
         setError('Photo must be JPEG, PNG, or WebP');
         return;
@@ -67,7 +94,6 @@ export const RegisterPlayerPage: React.FC = () => {
       setPhotoFile(file);
       setError('');
 
-      // Create preview
       const reader = new FileReader();
       reader.onloadend = () => {
         setPhotoPreview(reader.result as string);
@@ -88,21 +114,24 @@ export const RegisterPlayerPage: React.FC = () => {
   };
 
   const validateForm = (): boolean => {
-    // Check required fields
     if (!formData.firstName || !formData.lastName || !formData.dateOfBirth || 
         !formData.class || !formData.heightFeet || !formData.heightInches || !formData.weight) {
       setError('Please fill in all required fields');
       return false;
     }
 
-    // Validate age (5-25 years)
+    // ← ADD THIS: Validate team selection if coach has teams
+    if (teams.length > 0 && !formData.teamId) {
+      setError('Please select a team');
+      return false;
+    }
+
     const age = calculateAge(formData.dateOfBirth);
     if (age < 5 || age > 25) {
       setError('Player must be between 5 and 25 years old');
       return false;
     }
 
-    // Validate height
     const feet = parseInt(formData.heightFeet);
     const inches = parseInt(formData.heightInches);
     if (feet < 3 || feet > 8 || inches < 0 || inches > 11) {
@@ -110,7 +139,6 @@ export const RegisterPlayerPage: React.FC = () => {
       return false;
     }
 
-    // Validate weight
     const weight = parseInt(formData.weight);
     if (weight < 80 || weight > 400) {
       setError('Weight must be between 80 and 400 lbs');
@@ -136,22 +164,21 @@ export const RegisterPlayerPage: React.FC = () => {
     setLoading(true);
 
     try {
-      // First, create player without photo
-      const tempPlayerId = Date.now().toString(); // Temporary ID for upload
+      const tempPlayerId = Date.now().toString();
       
       let photoURL = '';
       let photoPath = '';
 
-      // Upload photo if provided
       if (photoFile) {
         const uploadResult = await uploadPlayerPhoto(photoFile, tempPlayerId);
         photoURL = uploadResult.url;
         photoPath = uploadResult.path;
       }
 
-      // Create player in Firestore
+      // ← ADD teamId to player creation
       await createPlayer({
         coachId: user.uid,
+        teamId: formData.teamId || undefined,  // ← ADD THIS
         personalInfo: {
           firstName: formData.firstName,
           lastName: formData.lastName,
@@ -176,7 +203,6 @@ export const RegisterPlayerPage: React.FC = () => {
         }
       });
 
-      // Success! Navigate to dashboard
       navigate('/dashboard');
     } catch (err: any) {
       setError(err.message || 'Failed to register player');
@@ -185,6 +211,18 @@ export const RegisterPlayerPage: React.FC = () => {
   };
 
   const calculatedAge = formData.dateOfBirth ? calculateAge(formData.dateOfBirth) : null;
+
+  // ← ADD THIS: Show loading state while teams load
+  if (loadingTeams) {
+    return (
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-100 py-8">
@@ -200,6 +238,22 @@ export const RegisterPlayerPage: React.FC = () => {
           <h1 className="text-3xl font-bold text-gray-800">Register New Player</h1>
           <p className="text-gray-600 mt-2">Add a new player to your roster</p>
         </div>
+
+        {/* ← ADD THIS: Team warning if no teams */}
+        {teams.length === 0 && (
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
+            <div className="flex items-start gap-3">
+              <span className="text-2xl">⚠️</span>
+              <div>
+                <p className="font-semibold text-yellow-800">No Teams Assigned</p>
+                <p className="text-sm text-yellow-700 mt-1">
+                  You haven't been assigned to any teams yet. Contact your administrator to get assigned to a team.
+                  You can still register players, but they won't be assigned to a specific team.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="bg-white rounded-lg shadow-md p-8">
@@ -243,6 +297,35 @@ export const RegisterPlayerPage: React.FC = () => {
             </div>
           </div>
 
+          {/* ← ADD THIS: Team Selection */}
+          {teams.length > 0 && (
+            <div className="mb-8">
+              <h3 className="text-lg font-semibold text-gray-800 mb-4">Team Assignment</h3>
+              <Select
+                label="Select Team"
+                name="teamId"
+                value={formData.teamId}
+                onChange={handleInputChange}
+                options={teams.map(team => ({
+                  value: team.teamId!,
+                  label: `${team.name} - ${team.season} (${team.ageGroup})`
+                }))}
+                required={teams.length > 0}
+              />
+              {formData.teamId && (
+                <div className="mt-3 bg-blue-50 border border-blue-200 rounded-lg p-3">
+                  <p className="text-sm text-blue-800">
+                    <strong>Team:</strong> {teams.find(t => t.teamId === formData.teamId)?.name}
+                  </p>
+                  <p className="text-sm text-blue-700 mt-1">
+                    Sport: {teams.find(t => t.teamId === formData.teamId)?.sport} • 
+                    Season: {teams.find(t => t.teamId === formData.teamId)?.season}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Personal Information */}
           <div className="mb-8">
             <h3 className="text-lg font-semibold text-gray-800 mb-4">Personal Information</h3>
@@ -279,7 +362,6 @@ export const RegisterPlayerPage: React.FC = () => {
               />
             </div>
 
-            {/* Age Calculator */}
             {calculatedAge !== null && (
               <div className="mt-4 bg-blue-50 border border-blue-200 rounded-lg p-4">
                 <p className="text-blue-800">

@@ -7,6 +7,8 @@ import { logOut } from '../lib/firebase/auth';
 import { Button } from '../components/common/Button';
 import { StatsCard } from '../components/dashboard/StatsCard';
 import { PlayerCard } from '../components/dashboard/PlayerCard';
+import { getCoachTeams } from '../lib/firebase/admin';
+import type { Team } from '../types/admin';
 
 export const DashboardPage: React.FC = () => {
   const navigate = useNavigate();
@@ -14,6 +16,9 @@ export const DashboardPage: React.FC = () => {
   const [players, setPlayers] = useState<Player[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [selectedTeam, setSelectedTeam] = useState<string>('all');
+  
 
   useEffect(() => {
     loadPlayers();
@@ -24,10 +29,14 @@ export const DashboardPage: React.FC = () => {
     
     setLoading(true);
     try {
-      const playerData = await getPlayersByCoach(user.uid);
+      const [playerData, teamData] = await Promise.all([
+        getPlayersByCoach(user.uid),
+        getCoachTeams(user.uid)
+      ]);
       setPlayers(playerData);
+      setTeams(teamData);
     } catch (error) {
-      console.error('Error loading players:', error);
+      console.error('Error loading data:', error);
     } finally {
       setLoading(false);
     }
@@ -76,9 +85,16 @@ export const DashboardPage: React.FC = () => {
 
   // Filter players by search term
   const filteredPlayers = players.filter(player => {
-    const fullName = `${player.personalInfo.firstName} ${player.personalInfo.lastName}`.toLowerCase();
-    return fullName.includes(searchTerm.toLowerCase());
-  });
+    const matchesSearch =
+      `${player.personalInfo.firstName} ${player.personalInfo.lastName}`
+        .toLowerCase()
+        .includes(searchTerm.toLowerCase());
+  
+  const matchesTeam = 
+    selectedTeam === 'all' || player.teamId === selectedTeam;
+
+  return matchesSearch && matchesTeam;
+});
 
   if (loading) {
     return (
@@ -106,6 +122,15 @@ export const DashboardPage: React.FC = () => {
               </p>
             </div>
             <div className="flex items-center gap-4">
+              {/* Show Admin Dashboard button if user is admin */}
+              {userProfile?.role === 'admin' && (
+                <Button
+                  onClick={() => navigate('/admin')}
+                  variant="secondary"
+                >
+                  🔐 Admin Dashboard
+                </Button>
+              )}
               <Button
                 onClick={() => navigate('/register-player')}
                 variant="primary"
@@ -164,6 +189,33 @@ export const DashboardPage: React.FC = () => {
           />
         </div>
 
+        {/* Search and Filter Bar */}
+        <div className="mb-6 flex gap-4">
+         <input
+           type="text"
+           placeholder="Search players..."
+           value={searchTerm}
+           onChange={(e) => setSearchTerm(e.target.value)}
+           className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+        />
+
+        {/* ← ADD THIS: Team Filter */}
+  {teams.length > 0 && (
+    <select
+      value={selectedTeam}
+      onChange={(e) => setSelectedTeam(e.target.value)}
+      className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+    >
+      <option value="all">All Teams</option>
+      {teams.map(team => (
+        <option key={team.teamId} value={team.teamId}>
+          {team.name}
+        </option>
+      ))}
+    </select>
+  )}
+</div>
+
         {/* Players Grid */}
         {filteredPlayers.length === 0 ? (
           <div className="bg-white rounded-lg shadow-md p-12 text-center">
@@ -189,6 +241,7 @@ export const DashboardPage: React.FC = () => {
               <PlayerCard
                 key={player.playerId}
                 player={player}
+                teams={teams}
                 onClick={() => navigate(`/players/${player.playerId}`)}
               />
             ))}

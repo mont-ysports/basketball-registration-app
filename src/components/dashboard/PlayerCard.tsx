@@ -1,14 +1,16 @@
 // src/components/dashboard/PlayerCard.tsx
 import React from 'react';
 import type { Player } from '../../lib/firebase/firestore';
+import type { Team } from '../../types/admin';
 import { format } from 'date-fns';
 
 interface PlayerCardProps {
   player: Player;
   onClick: () => void;
+  teams?: Team[];
 }
 
-export const PlayerCard: React.FC<PlayerCardProps> = ({ player, onClick }) => {
+export const PlayerCard: React.FC<PlayerCardProps> = ({ player, onClick, teams }) => {
   const calculateAge = (birthDate: Date): number => {
     const today = new Date();
     let age = today.getFullYear() - birthDate.getFullYear();
@@ -21,6 +23,7 @@ export const PlayerCard: React.FC<PlayerCardProps> = ({ player, onClick }) => {
 
   const age = calculateAge(player.personalInfo.dateOfBirth);
   const height = `${player.physicalStats.heightFeet}'${player.physicalStats.heightInches}"`;
+  const playerTeam = teams?.find(t => t.teamId === player.teamId);
 
   return (
     <div
@@ -47,6 +50,15 @@ export const PlayerCard: React.FC<PlayerCardProps> = ({ player, onClick }) => {
         <h3 className="text-xl font-bold text-gray-800">
           {player.personalInfo.firstName} {player.personalInfo.lastName}
         </h3>
+        
+        {/* Team Badge */}
+        {playerTeam && (
+          <div className="mt-2 mb-3">
+            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+              🏆 {playerTeam.name}
+            </span>
+          </div>
+        )}
         
         <div className="mt-3 space-y-2">
           <div className="flex items-center gap-2 text-gray-600">

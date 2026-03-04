@@ -16,6 +16,7 @@ import { db } from './config';
 export interface Player {
   playerId?: string;
   coachId: string;
+  teamId?: string;
   personalInfo: {
     firstName: string;
     lastName: string;
